@@ -26,6 +26,8 @@ class Elem:
 
 
 class Graph:
+	def __init__(self):
+		pass
 	def __init__(self,elems, method="gaussian", sigma=1.0, k=5):
 		self.elems = elems
 		self.N = len(elems)
@@ -54,6 +56,12 @@ class Graph:
 		for i in range(self.N):
 			self.Y[i] = elems[i].label
 		self.Yt = self.Y.view()
+	def subgraph(self,subset):
+		sg = Graph()
+		elems = []
+		for i in range(self.N):
+			if i in subset:
+				elems.append(self.elems[i])
 
 	def algorithm_11_1(self,steps):
 		D = zeros(self.W.shape)
@@ -104,6 +112,7 @@ class Graph:
 			for j in range(self.N):
 				wij = self.W[i,j]
 				if(wij > 0.0):
+					wij *= 0.5
 					if(self.Yt[i] > 0.0 and self.Yt[j] > 0.0):
 						glColor3f(1.0,1.0-wij,1.0-wij)	
 					elif(self.Yt[i] < 0.0 and self.Yt[j] < 0.0):
@@ -116,14 +125,20 @@ class Graph:
 					glEnd()
 		glPointSize(5.0)
 		for i in range(self.N):
-			if(self.Yt[i] > 0.0):
-				glColor3f(1.0,0.0,0.0)
-			elif(self.Yt[i] < 0.0):
-				glColor3f(0.0,0.0,1.0)
-			elif i in self.subset:
-				glColor3f(0.0,1.0,0.0)
+			if i in self.subset:
+				if(self.Yt[i] > 0.0):
+					glColor3f(1.0,0.0,0.0)
+				elif(self.Yt[i] < 0.0):
+					glColor3f(0.0,0.0,1.0)
+				else:
+					glColor3f(0.0,0.0,0.0)
 			else:
-				glColor3f(0.0,0.0,0.0)
+				if(self.Yt[i] > 0.0):
+					glColor3f(1.0,0.5,0.5)
+				elif(self.Yt[i] < 0.0):
+					glColor3f(0.5,0.5,1.0)
+				else:
+					glColor3f(0.5,0.5,0.5)
 			
 			
 			glBegin(GL_POINT)
