@@ -26,44 +26,96 @@ class Elem:
 
 
 class Graph:
-	def __init__(self):
-		pass
-	def __init__(self,elems, method="gaussian", sigma=1.0, k=5):
-		self.elems = elems
-		self.N = len(elems)
-		self.W = zeros((self.N,self.N))
-		self.subset = set()
-		if(method == "KNN"):
-			print "Generating KNN ..."
-			for elem in elems:
-				dist_list = sorted(elems,elem.cmp)
-				for i in range(k):
-					elem.neighbours.add(dist_list[i])
+	def __init__(self,elems = None, method="none", sigma=1.0, k=5, W = None):
+		self.N  = 0
+		self.W  = None
+		self.Y  = None
+		self.Yt = None
+		self.elems = None
 
-			print "Generating neighbour weight matrix ..."
+		self.subset       = set()
+		self.graph_to_sub = {}
+		self.sub_to_graph = {}
+		self.sub_graph    = None
+
+		if elems != None:
+			self.N     = len(elems)
+			self.elems = elems
+			self.Y     = zeros(self.N)
+
+			if method == "KNN" :
+				self.W = self.KNN_W(elems,k)
+			elif method == "gaussian" :
+				self.W = self.gaussian_W(elems,sigma)
+			elif W != None:
+				self.W = W
+
 			for i in range(self.N):
-				for j in range(self.N):
-					if elems[i] in elems[j].neighbours:
-						self.W[i,j] = 1.0;
-		elif(method == "gaussian"):
-			print "Generating gaussian weight matrix ..."
-			for i in range(self.N):
-				for j in range(self.N):
-					self.W[i,j] = exp( -(elems[i].dist(elems[j])**2) / (2*sigma**2) )
-			print self.W
-			print self.W.max()
-		self.Y = zeros(self.N)
-		for i in range(self.N):
-			self.Y[i] = elems[i].label
-		self.Yt = self.Y.view()
+				self.Y[i] = elems[i].label
+			self.Yt = self.Y.view()
+	def KNN_W(self,elems,k):
+		N = len(elems)
+		W = zeros((N,N))
+		print "Generating KNN ..."
+		for elem in elems:
+			dist_list = sorted(elems,elem.cmp)
+			for i in range(k):
+				elem.neighbours.add(dist_list[i])
+
+		print "Generating neighbour weight matrix ..."
+		for i in range(N):
+			for j in range(N):
+				if elems[i] in elems[j].neighbours:
+					W[i,j] = 1.0
+		return W
+	def gaussian_W(self,elems,sigma):
+		N = len(elems)
+		W = zeros((N,N))
+		print "Generating gaussian weight matrix ..."
+		for i in range(N):
+			for j in range(N):
+				W[i,j] = exp( -(elems[i].dist(elems[j])**2) / (2*sigma**2) )
+		return W
 	def subgraph(self,subset):
-		sg = Graph()
-		elems = []
-		for i in range(self.N):
-			if i in subset:
-				elems.append(self.elems[i])
+		M = len(subset)
+		sub_elems = []
+		sub_W = zeros((M,M))
+		graph_to_sub = {}
+		sub_to_graph = {}
 
-	def algorithm_11_1(self,steps):
+		for i in range(self.N):
+			if i in self.subset:
+				sub_elems.append(self.elems[i])
+				graph_to_sub[i] = len(sub_elems)-1
+				sub_to_graph[len(sub_elems)-1] = i
+		
+		for i in range(M):
+			for j in range(M):
+				k = sub_to_graph[i]
+				l = sub_to_graph[j]
+				sub_W[i,j] = self.W[k,l]
+
+		sg = Graph(elems = sub_elems, W = sub_W)
+		sg.graph_to_sub  = graph_to_sub
+		sg.sub_to_graph  = sub_to_graph
+		self.sub_graph   = sg
+
+		return sg
+	def from_subgraph(self,sub_graph):
+		for i in range(sub_graph.N):
+			self.Yt[sub_graph.sub_to_graph[i]] = sub_graph.Yt[i]
+	def estimate(self,i,subset):
+		N = 0.0
+		D = 0.00001
+		for j in range(self.N):
+			if j in subset:
+				N += self.W[i,j]*self.Yt[j]
+				D += self.W[i,j]
+		return N/D
+	def algorithm_11_1(self,steps = -1):
+		if steps < 0:
+			steps = self.N
+
 		D = zeros(self.W.shape)
 		for i in arange(self.N):
 			D[i,i] = self.W[i,:].sum()
@@ -73,14 +125,16 @@ class Graph:
 			for i in range(self.N):
 				if(self.Y[i] != 0.0):
 					self.Yt[i] = self.Y[i]
-	
 	def select_subset(self,m):
 		subset = set()
-		#1 select max m elements from labelled data
+		self.subset = subset
+
+		print "step 1 select max m elements from labelled data ... "
 		for i in range(self.N):
 			if self.Yt[i] != 0.0 and len(subset) < m:
 				subset.add(i)
-		#2 select elements that are the furthest form the subset
+
+		print "step 2 select elements that are the furthest from the subset ... "
 		r = m - len(subset)
 		for n in range(r):
 			def subset_dist(i):
@@ -104,8 +158,22 @@ class Graph:
 					candidates.append(i)
 			subset.add(sorted(candidates,cmp)[0])
 			#todo outliers
-		self.subset = subset
 
+		print "step 3 generate subgraph from subset ..."
+		subgraph = self.subgraph(subset)
+
+		print "step 4 estimate classes on subset ..."
+		subgraph.algorithm_11_1()
+		self.from_subgraph(subgraph)
+
+		print "step 5 propagate subset estimation to R"
+		for i in range(self.N):
+			if i not in subset:
+				self.Yt[i] = self.estimate(i,subset)
+
+		print "step 6 pick least confident"
+		
+		return subset
 	def draw_graph(self):
 		glLineWidth(0.75)
 		for i in range(self.N):	
@@ -144,14 +212,12 @@ class Graph:
 			glBegin(GL_POINT)
 			glVertex3f(self.elems[i].x,self.elems[i].y,1.1)
 			glEnd()
-
 	def draw_fun(self):
 		glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT)
 		glPushMatrix()
 		self.draw_graph()
 		glPopMatrix()
 		glutSwapBuffers()
-		
 
 def draw_init(disp_fun):
 	glutInit(sys.argv)
@@ -175,7 +241,6 @@ def draw_init(disp_fun):
 	#		  0,0,0,
 	#		  0,1,0)
 	#glPushMatrix()
-
 def gen_uniform_circle_elems(px,py,r,N,Pl,klass):
 	elems = []
 	for i in range(N):
@@ -190,33 +255,35 @@ def gen_uniform_circle_elems(px,py,r,N,Pl,klass):
 			e = Elem(x,y,0.0)
 		elems.append(e)
 	return elems
-
-def main():
-	S = 100.0
-	N = 200
-	Pl = 0.1
+def gen_uniform_rect(px,py,sx,sy,N,Pl,klass):
 	elems = []
-	print "Generating elems ..."
-	#elems.extend(gen_uniform_circle_elems(25,50,25,100,0.5,1.0))
-	#elems.extend(gen_uniform_circle_elems(75,50,25,100,0.5,-1.0))
-	
-	
-	for i in range(N):
-		x = random.random()*S
-		y = random.random()*S
+	for i in range(int(N)):
+		x = px + random.random() * sx
+		y = py + random.random() * sy
 		if(random.random() < Pl):
-			if(x < S/2):
-				e = Elem(x,y,1.0)
-			else:
-				e = Elem(x,y,-1.0)
+			e = Elem(x,y,float(klass))
 		else:
 			e = Elem(x,y,0.0)
 		elems.append(e)
+	return elems
+
+def main():
+	random.seed(0)
+	N = 100
+	Pl = 0.2
+	elems = []
+	print "Generating elems ..."
+	#elems.extend(gen_uniform_circle_elems(25,50,25,N/2,Pl,1.0))
+	#elems.extend(gen_uniform_circle_elems(75,50,25,N/2,Pl,-1.0))
+	elems.extend(gen_uniform_rect(0,0,50,100,N/2,Pl,1.0))
+	elems.extend(gen_uniform_rect(50,0,50,100,N/2,Pl,-1.0))
+	
 	print "Generating graph ..."
 	graph = Graph(elems,"gaussian",sigma=10)	
 	#graph = Graph(elems,"KNN",k=20)	
 	print "Subset Selection"
-	graph.select_subset(60)
+	graph.select_subset(40)
+	#graph.subgraph(graph.subset)
 	#print "Class propagation ..."
 	#graph.algorithm_11_1(100)
 	print "Draw graph ... "
