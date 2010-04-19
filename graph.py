@@ -98,6 +98,7 @@ class Graph:
 		sg = Graph(elems = sub_elems, W = sub_W)
 		sg.graph_to_sub  = graph_to_sub
 		sg.sub_to_graph  = sub_to_graph
+		sg.subset = set(range(M))
 		self.sub_graph   = sg
 
 		return sg
@@ -125,39 +126,40 @@ class Graph:
 			for i in range(self.N):
 				if(self.Y[i] != 0.0):
 					self.Yt[i] = self.Y[i]
-	def select_subset(self,m):
-		subset = set()
-		self.subset = subset
-
-		print "step 1 select max m elements from labelled data ... "
-		for i in range(self.N):
-			if self.Yt[i] != 0.0 and len(subset) < m:
-				subset.add(i)
-
-		print "step 2 select elements that are the furthest from the subset ... "
-		r = m - len(subset)
-		for n in range(r):
-			def subset_dist(i):
-				mem = {}
-				if i in mem:
-					return mem[i]
+	def select_subset(self,m,surf=0.5,sigma = 0.001):
+		def furthest_from(subset, candidates):
+			def subset_dist(subset,i):
 				dist = 0.0
 				for j in range(self.N):
 					if j in subset:
 						dist += self.W[i,j]
-				mem[i] = dist
 				return dist
-			def cmp(a,b):
-				if subset_dist(a) > subset_dist(b):
-					return 1
-				else:
-					return -1
-			candidates = []
-			for i in range(self.N):
-				if i not in subset:
-					candidates.append(i)
-			subset.add(sorted(candidates,cmp)[0])
-			#todo outliers
+			mindist = subset_dist(subset,list(candidates)[0])
+			minc = list(candidates)[0]
+			for c in candidates:
+				newdist = subset_dist(subset,c)
+				if newdist < mindist:
+					mindist = newdist
+					minc = c
+			return minc
+			
+		subset = set()
+		self.subset = subset
+
+		print "step 1 select max m(",m,") elements from labelled data ... "
+		for i in range(self.N):
+			if self.Yt[i] != 0.0 and len(subset) < m:
+				subset.add(i)
+		print "... picked:",len(subset), " elements"
+
+		print "step 2 select elements that are the furthest from the subset ... "
+		r = m - len(subset)
+		rest = set(range(self.N)) - subset
+		for n in range(r):
+			c = furthest_from(subset,rest)
+			rest.remove(c)
+			subset.add(c)
+		print "...subset length :",len(subset)
 
 		print "step 3 generate subgraph from subset ..."
 		subgraph = self.subgraph(subset)
@@ -171,7 +173,39 @@ class Graph:
 			if i not in subset:
 				self.Yt[i] = self.estimate(i,subset)
 
-		print "step 6 pick least confident"
+		print "step 6 pick least confident..."
+		X = int(surf*len(subset))
+		Sh = list(subset)
+		Rl = []
+		for i in range(self.N):
+			if i not in subset:
+				Rl.append(i)
+		def confidence_cmp(i,j):
+			if(abs(self.Yt[i]) > abs(self.Yt[j])):
+				return 1
+			else:
+				return -1
+		Sh.sort(confidence_cmp)
+		Rl.sort(confidence_cmp)
+		Sh = Sh[-X:]
+		Rl = set(Rl[:X])
+		for i in Sh:
+			min = 10.0
+			for j in range(self.N):
+				s = 0.0
+				for k in range(self.N):
+					if k in subset:
+						s += self.W[j,k]
+				if s < min:
+					min = s
+			if min > sigma:
+				subset.remove(i)
+				c = furthest_from(subset,Rl)
+				subset.add(c)
+				Rl.remove(c)
+
+		print "Generating new subgraph..."
+		subgraph = self.subgraph(subset)
 		
 		return subset
 	def draw_graph(self):
@@ -179,34 +213,48 @@ class Graph:
 		for i in range(self.N):	
 			for j in range(self.N):
 				wij = self.W[i,j]
-				if(wij > 0.0):
-					wij *= 0.5
-					if(self.Yt[i] > 0.0 and self.Yt[j] > 0.0):
-						glColor3f(1.0,1.0-wij,1.0-wij)	
-					elif(self.Yt[i] < 0.0 and self.Yt[j] < 0.0):
-						glColor3f(1.0-wij,1.0-wij,1.0)
-					else:
-						glColor3f(1.0-wij,1.0-wij,1.0-wij)
+				if(wij > 0.2):
+					alpha = 1.0-min(abs(self.Yt[i]),abs(self.Yt[j]))
+					glColor3f(1.0-(wij*alpha),1.0-wij,1.0-(wij*(1.0-alpha)))
+					#wij *= 0.5
+					#if(self.Yt[i] > 0.0 and self.Yt[j] > 0.0):
+					#	glColor3f(1.0,1.0-wij,1.0-wij)	
+					#elif(self.Yt[i] < 0.0 and self.Yt[j] < 0.0):
+					#	glColor3f(1.0-wij,1.0-wij,1.0)
+					#else:
+					#	glColor3f(1.0-wij,1.0-wij,1.0-wij)
 					glBegin(GL_LINE)
 					glVertex3f(self.elems[i].x,self.elems[i].y,wij)
 					glVertex3f(self.elems[j].x,self.elems[j].y,wij)
 					glEnd()
-		glPointSize(5.0)
 		for i in range(self.N):
+			glPointSize(5.0)
+			alpha = float(abs(self.Yt[i]))
+			glColor3f(alpha,0.0,1.0-alpha)
 			if i in self.subset:
-				if(self.Yt[i] > 0.0):
-					glColor3f(1.0,0.0,0.0)
-				elif(self.Yt[i] < 0.0):
-					glColor3f(0.0,0.0,1.0)
-				else:
-					glColor3f(0.0,0.0,0.0)
+				glColor3f(0,0,0)
 			else:
-				if(self.Yt[i] > 0.0):
-					glColor3f(1.0,0.5,0.5)
-				elif(self.Yt[i] < 0.0):
-					glColor3f(0.5,0.5,1.0)
-				else:
-					glColor3f(0.5,0.5,0.5)
+				continue
+			#if i in self.Sh:
+			#	glColor3f(0,0,0)
+			#if i in self.Rl:
+			#	glColor3f(1,0,1)
+		#	if i in self.subset:
+		#		glPointSize(5.0)
+		#		if(self.Yt[i] > 0.0):
+		#			glColor3f(1.0,0.2,0.0)
+		#		elif(self.Yt[i] < 0.0):
+		#			glColor3f(0.0,0.2,1.0)
+		#		else:
+		#			glColor3f(0.0,1.0,0.0)
+		#	else:
+		#		glPointSize(0.5)
+		#		if(self.Yt[i] > 0.0):
+		#			glColor3f(1.0,0.5,0.5)
+		#		elif(self.Yt[i] < 0.0):
+		#			glColor3f(0.5,0.5,1.0)
+		#		else:
+		#			glColor3f(0.5,0.5,0.5)
 			
 			
 			glBegin(GL_POINT)
@@ -257,19 +305,22 @@ def gen_uniform_circle_elems(px,py,r,N,Pl,klass):
 	return elems
 def gen_uniform_rect(px,py,sx,sy,N,Pl,klass):
 	elems = []
+	labelled = 0
 	for i in range(int(N)):
 		x = px + random.random() * sx
 		y = py + random.random() * sy
 		if(random.random() < Pl):
 			e = Elem(x,y,float(klass))
+			labelled += 1
 		else:
 			e = Elem(x,y,0.0)
 		elems.append(e)
+	print "Labelled :",labelled
 	return elems
 
 def main():
 	random.seed(0)
-	N = 100
+	N = 400
 	Pl = 0.2
 	elems = []
 	print "Generating elems ..."
@@ -282,7 +333,7 @@ def main():
 	graph = Graph(elems,"gaussian",sigma=10)	
 	#graph = Graph(elems,"KNN",k=20)	
 	print "Subset Selection"
-	graph.select_subset(40)
+	graph.select_subset(120)
 	#graph.subgraph(graph.subset)
 	#print "Class propagation ..."
 	#graph.algorithm_11_1(100)
