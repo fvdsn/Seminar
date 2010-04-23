@@ -76,6 +76,78 @@ class Graph:
 			for j in range(N):
 				W[i,j] = exp( -(elems[i].dist(elems[j])**2) / (2*sigma**2) )
 		return W
+	def reorder(self,subset):
+		S = len(subset)
+		N = self.N
+		order = []
+		elems2 = range(N)
+		W2 = zeros((N,N))
+		subset2 = set(range(S))
+		for i in range(N):
+			if i in subset:
+				order.append(i)
+		for i in range(N):
+			if i not in subset:
+				order.append(i)
+		for i in range(N):
+			elems2[i] = self.elems[order[i]]
+		for i in range(N):
+			for j in range(N):
+				W2[i,j] = self.W[order[i],order[j]]
+
+		#test
+		#for i in range(N):
+		#	if i in subset:
+		#		print self.elems[i].x
+		#print "------"
+		#for i in range(N):
+		#	if i in subset2:
+		#		print elems2[i].x
+
+		G2 = Graph(elems=elems2,W=W2);
+		G2.subset = subset2
+		G2.order = order
+		self.reordered  = G2
+		return G2
+	def algorithm_18_22(self, mu = 0.5, epsilon = 0.001):
+		S = len(self.subset)
+		N = self.N
+		Sss = zeros((S,S))
+		Wss = zeros((S,S))
+		Wrs = zeros((N-S,S))
+		Wsr = zeros((S,N-S))
+		Dss = zeros((S,S))
+		Id  = zeros((S,S))
+		for i in range(S):
+			if(self.Yt[i] < -0.99 or self.Yt[i] > 0.99):
+				Sss[i,i] = 1
+		for i in range(S):
+			for j in range(S):
+				Wss[i,j] = self.W[i,j]
+		for i in range(S):
+			for j in range(N-S):
+				Wsr[i,j] = self.W[i,S+j]
+		
+		for I in range(N-S):
+			i = I+S
+			for j in range(S):
+				sum = epsilon
+				for k in range(S):
+					sum += self.W[i,k]
+				Wrs[I,j] = self.W[i,j] / sum
+				
+		for i in range(S):
+			sum = 0.0
+			for j in range(S):
+				sum += self.W[i,j]
+			D[i,i] = sum
+		for i in range(S):
+			Id[i,i] = 1
+		
+		A = (Sss + mu*(Dss - Wss - dot(Wsr,Wrs) + epsilon*Id))
+		B = dot(Sss,self.Yt)
+		Yt = linalg.solve(A,B)
+
 	def subgraph(self,subset):
 		M = len(subset)
 		sub_elems = []
@@ -126,6 +198,27 @@ class Graph:
 			for i in range(self.N):
 				if(self.Y[i] != 0.0):
 					self.Yt[i] = self.Y[i]
+	def algorithm_18_2(self, mu = 0.5, epsilon = 0.001):
+		N = self.N
+		S = zeros((N,N))
+		D = zeros((N,N))
+		Id = zeros((N,N))
+		for i in range(N):
+			if(self.Yt[i] < -0.99 or self.Yt[i] > 0.99):
+				S[i,i] = 1
+		for i in range(N):
+			sum = 0.0
+			for j in range(N):
+				sum += self.W[i,j]
+			D[i,i] = sum
+		for i in range(N):
+			Id[i,i] = 1
+
+		L = D - self.W
+		
+		A = S + mu*L + mu*epsilon*Id
+		B = dot(S,self.Yt)
+		self.Yt = linalg.solve(A,B)
 	def select_subset(self,m,surf=0.5,sigma = 0.001):
 		def furthest_from(subset, candidates):
 			def subset_dist(subset,i):
@@ -208,7 +301,7 @@ class Graph:
 		subgraph = self.subgraph(subset)
 		
 		return subset
-	def draw_graph(self):
+	def draw_graph_confidence(self):
 		glLineWidth(0.75)
 		for i in range(self.N):	
 			for j in range(self.N):
@@ -260,10 +353,51 @@ class Graph:
 			glBegin(GL_POINT)
 			glVertex3f(self.elems[i].x,self.elems[i].y,1.1)
 			glEnd()
+	def draw_graph_color(self):
+		glLineWidth(0.75)
+		for i in range(self.N):	
+			for j in range(self.N):
+				wij = self.W[i,j]
+				if(wij < 0.2):
+					continue
+				#wij *= 0.5
+				if(self.Yt[i] > 0.0 and self.Yt[j] > 0.0):
+					glColor3f(1.0,1.0-wij,1.0-wij)	
+				elif(self.Yt[i] < 0.0 and self.Yt[j] < 0.0):
+					glColor3f(1.0-wij,1.0-wij,1.0)
+				else:
+					glColor3f(1.0-wij,1.0-wij,1.0-wij)
+				glBegin(GL_LINE)
+				glVertex3f(self.elems[i].x,self.elems[i].y,wij)
+				glVertex3f(self.elems[j].x,self.elems[j].y,wij)
+				glEnd()
+		for i in range(self.N):
+			glPointSize(5.0)
+			#if i in self.subset:
+			glPointSize(5.0)
+			if(self.Yt[i] > 0.0):
+				glColor3f(1.0,0.2,0.0)
+			elif(self.Yt[i] < 0.0):
+				glColor3f(0.0,0.2,1.0)
+			else:
+				glColor3f(0.0,1.0,0.0)
+			#else:
+			#	glPointSize(0.5)
+			#	if(self.Yt[i] > 0.0):
+			#		glColor3f(1.0,0.5,0.5)
+			#	elif(self.Yt[i] < 0.0):
+			#		glColor3f(0.5,0.5,1.0)
+			#	else:
+			#		glColor3f(0.5,0.5,0.5)
+			
+			
+			glBegin(GL_POINT)
+			glVertex3f(self.elems[i].x,self.elems[i].y,1.1)
+			glEnd()
 	def draw_fun(self):
 		glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT)
 		glPushMatrix()
-		self.draw_graph()
+		self.draw_graph_color()
 		glPopMatrix()
 		glutSwapBuffers()
 
@@ -321,7 +455,7 @@ def gen_uniform_rect(px,py,sx,sy,N,Pl,klass):
 def main():
 	random.seed(0)
 	N = 400
-	Pl = 0.2
+	Pl = 0.3
 	elems = []
 	print "Generating elems ..."
 	#elems.extend(gen_uniform_circle_elems(25,50,25,N/2,Pl,1.0))
@@ -332,11 +466,14 @@ def main():
 	print "Generating graph ..."
 	graph = Graph(elems,"gaussian",sigma=10)	
 	#graph = Graph(elems,"KNN",k=20)	
-	print "Subset Selection"
-	graph.select_subset(120)
+	print "Subset Selection ..."
+	graph.select_subset(20)
 	#graph.subgraph(graph.subset)
 	#print "Class propagation ..."
 	#graph.algorithm_11_1(100)
+	#graph.algorithm_18_2()
+	print "Reordering ..."
+	graph.reorder(graph.subset)
 	print "Draw graph ... "
 	draw_init(graph.draw_fun)
 	glutMainLoop()
